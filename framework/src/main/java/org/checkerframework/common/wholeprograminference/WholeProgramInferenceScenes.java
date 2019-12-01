@@ -31,6 +31,7 @@ import org.checkerframework.framework.type.AnnotatedTypeMirror.AnnotatedDeclared
 import org.checkerframework.framework.type.AnnotatedTypeMirror.AnnotatedExecutableType;
 import org.checkerframework.javacutil.AnnotationUtils;
 import org.checkerframework.javacutil.BugInCF;
+import org.checkerframework.javacutil.ElementUtils;
 import org.checkerframework.javacutil.TreeUtils;
 import scenelib.annotations.el.AClass;
 import scenelib.annotations.el.AField;
@@ -116,6 +117,12 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
             ObjectCreationNode objectCreationNode,
             ExecutableElement constructorElt,
             AnnotatedTypeFactory atf) {
+
+        // do not infer types for code that isn't presented as source
+        if (ElementUtils.isElementFromByteCode(constructorElt)) {
+            return;
+        }
+
         ClassSymbol classSymbol = getEnclosingClassSymbol(objectCreationNode.getTree());
         if (classSymbol == null) {
             // TODO: Handle anonymous classes.
@@ -128,7 +135,7 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
         String jaifPath = helper.getJaifPath(className);
         AClass clazz = helper.getAClass(className, jaifPath);
         String methodName = JVMNames.getJVMMethodName(constructorElt);
-        AMethod method = clazz.methods.vivify(methodName);
+        AMethod method = clazz.methods.getVivify(methodName);
 
         List<Node> arguments = objectCreationNode.getArguments();
         updateInferredExecutableParameterTypes(constructorElt, atf, jaifPath, method, arguments);
@@ -161,19 +168,25 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
             ExecutableElement methodElt,
             AnnotatedExecutableType overriddenMethod,
             AnnotatedTypeFactory atf) {
+
+        // do not infer types for code that isn't presented as source
+        if (ElementUtils.isElementFromByteCode(methodElt)) {
+            return;
+        }
+
         ClassSymbol classSymbol = getEnclosingClassSymbol(methodTree);
         String className = classSymbol.flatname.toString();
         String jaifPath = helper.getJaifPath(className);
         AClass clazz = helper.getAClass(className, jaifPath);
         String methodName = JVMNames.getJVMMethodName(methodElt);
-        AMethod method = clazz.methods.vivify(methodName);
+        AMethod method = clazz.methods.getVivify(methodName);
 
         for (int i = 0; i < overriddenMethod.getParameterTypes().size(); i++) {
             VariableElement ve = methodElt.getParameters().get(i);
             AnnotatedTypeMirror paramATM = atf.getAnnotatedType(ve);
 
             AnnotatedTypeMirror argATM = overriddenMethod.getParameterTypes().get(i);
-            AField param = method.parameters.vivify(i);
+            AField param = method.parameters.getVivify(i);
             helper.updateAnnotationSetInScene(
                     param.type, atf, jaifPath, argATM, paramATM, TypeUseLocation.PARAMETER);
         }
@@ -206,6 +219,12 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
             Tree receiverTree,
             ExecutableElement methodElt,
             AnnotatedTypeFactory atf) {
+
+        // do not infer types for code that isn't presented as source
+        if (ElementUtils.isElementFromByteCode(methodElt)) {
+            return;
+        }
+
         if (receiverTree == null) {
             // TODO: Method called from static context.
             // I struggled to obtain the ClassTree of a method called
@@ -236,7 +255,7 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
         AClass clazz = helper.getAClass(className, jaifPath);
 
         String methodName = JVMNames.getJVMMethodName(methodElt);
-        AMethod method = clazz.methods.vivify(methodName);
+        AMethod method = clazz.methods.getVivify(methodName);
 
         List<Node> arguments = methodInvNode.getArguments();
         updateInferredExecutableParameterTypes(methodElt, atf, jaifPath, method, arguments);
@@ -264,7 +283,7 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
                 continue;
             }
             AnnotatedTypeMirror argATM = atf.getAnnotatedType(treeNode);
-            AField param = method.parameters.vivify(i);
+            AField param = method.parameters.getVivify(i);
             helper.updateAnnotationSetInScene(
                     param.type, atf, jaifPath, argATM, paramATM, TypeUseLocation.PARAMETER);
         }
@@ -297,6 +316,12 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
             ClassTree classTree,
             MethodTree methodTree,
             AnnotatedTypeFactory atf) {
+
+        // do not infer types for code that isn't presented as source
+        if (ElementUtils.isElementFromByteCode(lhs.getElement())) {
+            return;
+        }
+
         ClassSymbol classSymbol = getEnclosingClassSymbol(classTree, lhs);
         // TODO: Anonymous classes
         // See Issue 682
@@ -309,7 +334,7 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
         String jaifPath = helper.getJaifPath(className);
         AClass clazz = helper.getAClass(className, jaifPath);
         String methodName = JVMNames.getJVMMethodName(methodTree);
-        AMethod method = clazz.methods.vivify(methodName);
+        AMethod method = clazz.methods.getVivify(methodName);
 
         List<? extends VariableTree> params = methodTree.getParameters();
         // Look-up parameter by name:
@@ -327,7 +352,7 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
                 }
                 AnnotatedTypeMirror paramATM = atf.getAnnotatedType(vt);
                 AnnotatedTypeMirror argATM = atf.getAnnotatedType(treeNode);
-                AField param = method.parameters.vivify(i);
+                AField param = method.parameters.getVivify(i);
                 helper.updateAnnotationSetInScene(
                         param.type, atf, jaifPath, argATM, paramATM, TypeUseLocation.PARAMETER);
                 break;
@@ -361,12 +386,18 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
             ExecutableElement methodElt,
             AnnotatedExecutableType overriddenMethod,
             AnnotatedTypeFactory atf) {
+
+        // do not infer types for code that isn't presented as source
+        if (ElementUtils.isElementFromByteCode(methodElt)) {
+            return;
+        }
+
         ClassSymbol classSymbol = getEnclosingClassSymbol(methodTree);
         String className = classSymbol.flatname.toString();
         String jaifPath = helper.getJaifPath(className);
         AClass clazz = helper.getAClass(className, jaifPath);
         String methodName = JVMNames.getJVMMethodName(methodElt);
-        AMethod method = clazz.methods.vivify(methodName);
+        AMethod method = clazz.methods.getVivify(methodName);
 
         AnnotatedDeclaredType argADT = overriddenMethod.getReceiverType();
         if (argADT != null) {
@@ -397,6 +428,12 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
     @Override
     public void updateInferredFieldType(
             FieldAccessNode lhs, Node rhs, ClassTree classTree, AnnotatedTypeFactory atf) {
+
+        // do not infer types for code that isn't presented as source
+        if (ElementUtils.isElementFromByteCode(lhs.getElement())) {
+            return;
+        }
+
         ClassSymbol classSymbol = getEnclosingClassSymbol(classTree, lhs);
         // See Issue 682
         // https://github.com/typetools/checker-framework/issues/682
@@ -429,8 +466,10 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
         String jaifPath = helper.getJaifPath(className);
         AClass clazz = helper.getAClass(className, jaifPath);
 
-        AField field = clazz.fields.vivify(lhs.getFieldName());
+        AField field = clazz.fields.getVivify(lhs.getFieldName());
         AnnotatedTypeMirror lhsATM = atf.getAnnotatedType(lhs.getTree());
+        // TODO: For a primitive such as long, this is yielding just @GuardedBy rather than
+        // @GuardedBy({}).
         AnnotatedTypeMirror rhsATM = atf.getAnnotatedType(rhs.getTree());
         helper.updateAnnotationSetInScene(
                 field.type, atf, jaifPath, rhsATM, lhsATM, TypeUseLocation.FIELD);
@@ -458,6 +497,14 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
             ClassSymbol classSymbol,
             MethodTree methodTree,
             AnnotatedTypeFactory atf) {
+
+        // do not infer types for code that isn't presented as source
+        if (methodTree == null
+                || ElementUtils.isElementFromByteCode(
+                        TreeUtils.elementFromDeclaration(methodTree))) {
+            return;
+        }
+
         // See Issue 682
         // https://github.com/typetools/checker-framework/issues/682
         if (classSymbol == null) { // TODO: Handle anonymous classes.
@@ -468,7 +515,7 @@ public class WholeProgramInferenceScenes implements WholeProgramInference {
         String jaifPath = helper.getJaifPath(className);
         AClass clazz = helper.getAClass(className, jaifPath);
 
-        AMethod method = clazz.methods.vivify(JVMNames.getJVMMethodName(methodTree));
+        AMethod method = clazz.methods.getVivify(JVMNames.getJVMMethodName(methodTree));
         // Method return type
         AnnotatedTypeMirror lhsATM = atf.getAnnotatedType(methodTree).getReturnType();
         // Type of the expression returned

@@ -211,7 +211,7 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
                     if (!pkgName.isEmpty()) {
                         name = pkgName + "." + name;
                     }
-                    typeDecl.accept(converter, scene.classes.vivify(name));
+                    typeDecl.accept(converter, scene.classes.getVivify(name));
                 }
             }
         }
@@ -229,7 +229,8 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
         if (exprName.contains("+")) {
             return null;
         }
-        AnnotationDef def = new AnnotationDef(exprName);
+        AnnotationDef def =
+                new AnnotationDef(exprName, "ToIndexFileConverter.extractAnnotation(" + expr + ")");
         def.setFieldTypes(Collections.emptyMap());
         return new Annotation(def, Collections.emptyMap());
     }
@@ -269,12 +270,12 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
             }
         }
         sb.append(")V");
-        method = clazz.methods.vivify(sb.toString());
+        method = clazz.methods.getVivify(sb.toString());
         visitDecl(decl, method);
         if (params != null) {
             for (int i = 0; i < params.size(); i++) {
                 Parameter param = params.get(i);
-                AField field = method.parameters.vivify(i);
+                AField field = method.parameters.getVivify(i);
                 visitType(param.getType(), field.type);
             }
         }
@@ -290,7 +291,7 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
 
     @Override
     public Void visit(EnumConstantDeclaration decl, AElement elem) {
-        AField field = ((AClass) elem).fields.vivify(decl.getNameAsString());
+        AField field = ((AClass) elem).fields.getVivify(decl.getNameAsString());
         visitDecl(decl, field);
         return super.visit(decl, field);
     }
@@ -305,7 +306,7 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
     public Void visit(FieldDeclaration decl, AElement elem) {
         for (VariableDeclarator v : decl.getVariables()) {
             AClass clazz = (AClass) elem;
-            AField field = clazz.fields.vivify(v.getNameAsString());
+            AField field = clazz.fields.getVivify(v.getNameAsString());
             visitDecl(decl, field);
             visitType(decl.getCommonType(), field.type);
         }
@@ -316,7 +317,7 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
     public Void visit(InitializerDeclaration decl, AElement elem) {
         BlockStmt block = decl.getBody();
         AClass clazz = (AClass) elem;
-        block.accept(this, clazz.methods.vivify(decl.isStatic() ? "<clinit>" : "<init>"));
+        block.accept(this, clazz.methods.getVivify(decl.isStatic() ? "<clinit>" : "<init>"));
         return null;
     }
 
@@ -337,13 +338,13 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
             }
         }
         sb.append(')').append(getJVML(type));
-        method = clazz.methods.vivify(sb.toString());
+        method = clazz.methods.getVivify(sb.toString());
         visitDecl(decl, method);
         visitType(type, method.returnType);
         if (params != null) {
             for (int i = 0; i < params.size(); i++) {
                 Parameter param = params.get(i);
-                AField field = method.parameters.vivify(i);
+                AField field = method.parameters.getVivify(i);
                 visitType(param.getType(), field.type);
             }
         }
@@ -361,7 +362,7 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
                     for (int j = 0; j < bounds.size(); j++) {
                         ClassOrInterfaceType bound = bounds.get(j);
                         BoundLocation loc = new BoundLocation(i, j);
-                        bound.accept(this, method.bounds.vivify(loc));
+                        bound.accept(this, method.bounds.getVivify(loc));
                     }
                 }
             }
@@ -372,7 +373,7 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
     @Override
     public Void visit(ObjectCreationExpr expr, AElement elem) {
         ClassOrInterfaceType type = expr.getType();
-        AClass clazz = scene.classes.vivify(type.getNameAsString());
+        AClass clazz = scene.classes.getVivify(type.getNameAsString());
         Expression scope = expr.getScope().orElse(null);
         List<Type> typeArgs = expr.getTypeArguments().orElse(null);
         List<Expression> args = expr.getArguments();
@@ -407,7 +408,7 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
         for (int i = 0; i < varDecls.size(); i++) {
             VariableDeclarator decl = varDecls.get(i);
             LocalLocation loc = new LocalLocation(decl.getNameAsString(), i);
-            AField field = method.body.locals.vivify(loc);
+            AField field = method.body.locals.getVivify(loc);
             visitType(expr.getCommonType(), field.type);
             if (annos != null) {
                 for (AnnotationExpr annoExpr : annos) {
@@ -474,7 +475,7 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
                         for (int i = 0; i < n; i++) {
                             ext = extendedTypePath(ext, 1, 0);
                             for (AnnotationExpr expr : currentType.getAnnotations()) {
-                                ATypeElement typeElem = elem.innerTypes.vivify(ext);
+                                ATypeElement typeElem = elem.innerTypes.getVivify(ext);
                                 Annotation anno = extractAnnotation(expr);
                                 typeElem.tlAnnotationsHere.add(anno);
                             }
@@ -504,7 +505,7 @@ public class ToIndexFileConverter extends GenericVisitorAdapter<Void, AElement> 
                      * Copies information from an AST inner type node to an {@link ATypeElement}.
                      */
                     private void visitInnerType(Type type, InnerTypeLocation loc) {
-                        ATypeElement typeElem = elem.innerTypes.vivify(loc);
+                        ATypeElement typeElem = elem.innerTypes.getVivify(loc);
                         for (AnnotationExpr expr : type.getAnnotations()) {
                             Annotation anno = extractAnnotation(expr);
                             typeElem.tlAnnotationsHere.add(anno);

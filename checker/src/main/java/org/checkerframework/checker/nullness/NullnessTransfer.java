@@ -32,7 +32,6 @@ import org.checkerframework.dataflow.cfg.node.ReturnNode;
 import org.checkerframework.dataflow.cfg.node.ThrowNode;
 import org.checkerframework.framework.flow.CFAbstractAnalysis;
 import org.checkerframework.framework.flow.CFAbstractStore;
-import org.checkerframework.framework.qual.PolyAll;
 import org.checkerframework.framework.type.AnnotatedTypeMirror;
 import org.checkerframework.framework.type.AnnotatedTypeMirror.AnnotatedDeclaredType;
 import org.checkerframework.framework.type.AnnotatedTypeMirror.AnnotatedExecutableType;
@@ -58,8 +57,10 @@ import org.checkerframework.javacutil.TypesUtils;
 public class NullnessTransfer
         extends InitializationTransfer<NullnessValue, NullnessTransfer, NullnessStore> {
 
-    /** Annotations of the non-null type system. */
-    protected final AnnotationMirror NONNULL, NULLABLE;
+    /** The @{@link NonNull} annotation. */
+    protected final AnnotationMirror NONNULL;
+    /** The @{@link Nullable} annotation. */
+    protected final AnnotationMirror NULLABLE;
 
     /**
      * Java's Map interface.
@@ -124,6 +125,15 @@ public class NullnessTransfer
         }
     }
 
+    /** Refine the given result to @NonNull. */
+    protected void refineToNonNull(TransferResult<NullnessValue, NullnessStore> result) {
+        NullnessValue oldResultValue = result.getResultValue();
+        NullnessValue refinedResultValue =
+                analysis.createSingleAnnotationValue(NONNULL, oldResultValue.getUnderlyingType());
+        NullnessValue newResultValue = refinedResultValue.mostSpecific(oldResultValue, null);
+        result.setResultValue(newResultValue);
+    }
+
     @Override
     protected NullnessValue finishValue(NullnessValue value, NullnessStore store) {
         value = super.finishValue(value, store);
@@ -174,8 +184,7 @@ public class NullnessTransfer
                     secondValue != null
                             ? secondValue.getAnnotations()
                             : AnnotationUtils.createAnnotationSet();
-            if (AnnotationUtils.containsSameByClass(secondAnnos, PolyNull.class)
-                    || AnnotationUtils.containsSameByClass(secondAnnos, PolyAll.class)) {
+            if (AnnotationUtils.containsSameByClass(secondAnnos, PolyNull.class)) {
                 thenStore = thenStore == null ? res.getThenStore() : thenStore;
                 elseStore = elseStore == null ? res.getElseStore() : elseStore;
                 thenStore.setPolyNullNull(true);
@@ -270,6 +279,7 @@ public class NullnessTransfer
 
             if (keyForTypeFactory.isKeyForMap(mapName, methodArgs.get(0))
                     && !hasNullableValueType((AnnotatedDeclaredType) receiverType)) {
+                makeNonNull(result, n);
                 refineToNonNull(result, n);
             }
         }
@@ -282,6 +292,7 @@ public class NullnessTransfer
 
             if (methodArgs.get(0).hasAnnotation(nonEmptyTypeFactory.NONEMPTY)
                     && !hasNullableValueType((AnnotatedDeclaredType) receiverType)) {
+                makeNonNull(result, n);
                 refineToNonNull(result, n);
             }
         }

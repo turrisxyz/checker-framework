@@ -26,6 +26,7 @@ import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.common.reflection.MethodValChecker;
 import org.checkerframework.dataflow.cfg.CFGVisualizer;
 import org.checkerframework.framework.qual.SubtypeOf;
@@ -34,6 +35,7 @@ import org.checkerframework.framework.type.AnnotatedTypeFactory;
 import org.checkerframework.framework.type.GenericAnnotatedTypeFactory;
 import org.checkerframework.framework.type.QualifierHierarchy;
 import org.checkerframework.framework.type.TypeHierarchy;
+import org.checkerframework.framework.util.TreePathCacher;
 import org.checkerframework.javacutil.AbstractTypeProcessor;
 import org.checkerframework.javacutil.AnnotationProvider;
 import org.checkerframework.javacutil.BugInCF;
@@ -64,8 +66,8 @@ import org.checkerframework.javacutil.UserError;
  *       hierarchy, mainly, subtyping rules
  *   <li>{@link TypeHierarchy}: to check subtyping rules between <b>annotated types</b> rather than
  *       qualifiers
- *   <li>{@link AnnotatedTypeFactory}: to construct qualified types enriched with implicit
- *       qualifiers according to the type system rules
+ *   <li>{@link AnnotatedTypeFactory}: to construct qualified types enriched with default qualifiers
+ *       according to the type system rules
  *   <li>{@link BaseTypeVisitor}: to visit the compiled Java files and check for violations of the
  *       type system rules
  * </ul>
@@ -123,6 +125,21 @@ public abstract class BaseTypeChecker extends SourceChecker implements BaseTypeC
 
     /** Supported options for this checker. */
     private Set<String> supportedOptions;
+
+    /**
+     * TreePathCacher to share between instances. Initialized either in instantiateSubcheckers or in
+     * getTreePathCacher.
+     */
+    private TreePathCacher treePathCacher;
+
+    @Override
+    protected void setRoot(CompilationUnitTree newRoot) {
+        super.setRoot(newRoot);
+        if (parentChecker == null) {
+            // Only clear the path cache if this is the main checker.
+            treePathCacher.clear();
+        }
+    }
 
     /**
      * Returns the set of subchecker classes on which this checker depends. Returns an empty set if
@@ -268,7 +285,7 @@ public abstract class BaseTypeChecker extends SourceChecker implements BaseTypeC
                         "InvocationTargetException when invoking constructor for class "
                                 + name
                                 + "; Underlying cause: "
-                                + err.getMessage(),
+                                + err,
                         t);
             } else {
                 throw new BugInCF(
@@ -326,7 +343,7 @@ public abstract class BaseTypeChecker extends SourceChecker implements BaseTypeC
     @SuppressWarnings("unchecked")
     public <T extends BaseTypeChecker> T getSubchecker(Class<T> checkerClass) {
         for (BaseTypeChecker checker : immediateSubcheckers) {
-            if (checker.getClass().equals(checkerClass)) {
+            if (checker.getClass() == checkerClass) {
                 return (T) checker;
             }
         }
@@ -367,7 +384,12 @@ public abstract class BaseTypeChecker extends SourceChecker implements BaseTypeC
                     alreadyInitializedSubcheckerMap) {
         LinkedHashSet<Class<? extends BaseTypeChecker>> classesOfImmediateSubcheckers =
                 getImmediateSubcheckerClasses();
-        ArrayList<BaseTypeChecker> immediateSubcheckers = new ArrayList<>();
+        if (classesOfImmediateSubcheckers.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        ArrayList<BaseTypeChecker> immediateSubcheckers =
+                new ArrayList<>(classesOfImmediateSubcheckers.size());
 
         for (Class<? extends BaseTypeChecker> subcheckerClass : classesOfImmediateSubcheckers) {
             BaseTypeChecker subchecker = alreadyInitializedSubcheckerMap.get(subcheckerClass);
@@ -378,20 +400,22 @@ public abstract class BaseTypeChecker extends SourceChecker implements BaseTypeC
                 continue;
             }
 
+            BaseTypeChecker instance;
             try {
-                BaseTypeChecker instance = subcheckerClass.getDeclaredConstructor().newInstance();
-                instance.setProcessingEnvironment(this.processingEnv);
-                // Prevent the new checker from storing non-immediate subcheckers
-                instance.subcheckers =
-                        Collections.unmodifiableList(new ArrayList<BaseTypeChecker>());
-                immediateSubcheckers.add(instance);
-                instance.immediateSubcheckers =
-                        instance.instantiateSubcheckers(alreadyInitializedSubcheckerMap);
-                instance.setParentChecker(this);
-                alreadyInitializedSubcheckerMap.put(subcheckerClass, instance);
+                instance = subcheckerClass.getDeclaredConstructor().newInstance();
             } catch (Exception e) {
                 throw new BugInCF("Could not create an instance of " + subcheckerClass);
             }
+
+            instance.setProcessingEnvironment(this.processingEnv);
+            instance.treePathCacher = this.getTreePathCacher();
+            // Prevent the new checker from storing non-immediate subcheckers
+            instance.subcheckers = Collections.emptyList();
+            immediateSubcheckers.add(instance);
+            instance.immediateSubcheckers =
+                    instance.instantiateSubcheckers(alreadyInitializedSubcheckerMap);
+            instance.setParentChecker(this);
+            alreadyInitializedSubcheckerMap.put(subcheckerClass, instance);
         }
 
         return Collections.unmodifiableList(immediateSubcheckers);
@@ -416,6 +440,15 @@ public abstract class BaseTypeChecker extends SourceChecker implements BaseTypeC
         }
 
         return subcheckers;
+    }
+
+    /** Get the shared TreePathCacher instance. */
+    public TreePathCacher getTreePathCacher() {
+        if (treePathCacher == null) {
+            // In case it wasn't already set in instantiateSubcheckers.
+            treePathCacher = new TreePathCacher();
+        }
+        return treePathCacher;
     }
 
     /**
@@ -457,7 +490,7 @@ public abstract class BaseTypeChecker extends SourceChecker implements BaseTypeC
     // AbstractTypeProcessor delegation
     @Override
     public void typeProcess(TypeElement element, TreePath tree) {
-        if (getSubcheckers().size() > 0) {
+        if (!getSubcheckers().isEmpty()) {
             messageStore = new TreeSet<>(checkerMessageComparator);
         }
 
@@ -489,7 +522,7 @@ public abstract class BaseTypeChecker extends SourceChecker implements BaseTypeC
         this.errsOnLastExit = nerrorsOfAllPreviousCheckers;
         super.typeProcess(element, tree);
 
-        if (getSubcheckers().size() > 0) {
+        if (!getSubcheckers().isEmpty()) {
             printCollectedMessages(tree.getCompilationUnit());
             // Update errsOnLastExit to reflect the errors issued.
             this.errsOnLastExit = log.nerrors;
@@ -585,7 +618,7 @@ public abstract class BaseTypeChecker extends SourceChecker implements BaseTypeC
         }
 
         @Override
-        public boolean equals(Object o) {
+        public boolean equals(@Nullable Object o) {
             if (this == o) {
                 return true;
             }

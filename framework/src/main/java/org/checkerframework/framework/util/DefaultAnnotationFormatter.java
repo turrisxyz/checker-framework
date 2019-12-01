@@ -22,9 +22,8 @@ public class DefaultAnnotationFormatter implements AnnotationFormatter {
      * @return true if anno's declaration was qualified by InvisibleQualifier
      */
     public static boolean isInvisibleQualified(AnnotationMirror anno) {
-        return ((TypeElement) anno.getAnnotationType().asElement())
-                        .getAnnotation(InvisibleQualifier.class)
-                != null;
+        TypeElement annoElement = (TypeElement) anno.getAnnotationType().asElement();
+        return annoElement.getAnnotation(InvisibleQualifier.class) != null;
     }
 
     /**
@@ -87,12 +86,14 @@ public class DefaultAnnotationFormatter implements AnnotationFormatter {
                 boolean notfirst = false;
                 for (Map.Entry<? extends ExecutableElement, ? extends AnnotationValue> arg :
                         args.entrySet()) {
-                    if (notfirst) {
-                        sb.append(", ");
+                    if (!"{}".equals(arg.getValue().toString())) {
+                        if (notfirst) {
+                            sb.append(", ");
+                        }
+                        notfirst = true;
+                        sb.append(arg.getKey().getSimpleName() + "=");
+                        formatAnnotationMirrorArg(arg.getValue(), sb);
                     }
-                    notfirst = true;
-                    sb.append(arg.getKey().getSimpleName() + "=");
-                    formatAnnotationMirrorArg(arg.getValue(), sb);
                 }
             }
             sb.append(")");
