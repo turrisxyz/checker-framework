@@ -4,8 +4,10 @@ import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
 import com.sun.tools.javac.code.Symbol.ClassSymbol;
+import java.util.Map;
+import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.ExecutableElement;
-import org.checkerframework.dataflow.cfg.node.FieldAccessNode;
+import org.checkerframework.common.basetype.BaseTypeChecker;
 import org.checkerframework.dataflow.cfg.node.LocalVariableNode;
 import org.checkerframework.dataflow.cfg.node.MethodInvocationNode;
 import org.checkerframework.dataflow.cfg.node.Node;
@@ -13,10 +15,13 @@ import org.checkerframework.dataflow.cfg.node.ObjectCreationNode;
 import org.checkerframework.dataflow.cfg.node.ReturnNode;
 import org.checkerframework.framework.qual.IgnoreInWholeProgramInference;
 import org.checkerframework.framework.type.AnnotatedTypeFactory;
+import org.checkerframework.framework.type.AnnotatedTypeMirror.AnnotatedDeclaredType;
 import org.checkerframework.framework.type.AnnotatedTypeMirror.AnnotatedExecutableType;
 
 /**
- * Interface for a whole-program inference implementation.
+ * Interface for recording facts at (pseudo-)assignments. It is used by the -Ainfer command-line
+ * argument. The -Ainfer command-line argument is used by the whole-program-inference loop, but this
+ * class does not implement that loop and its name {@code WholeProgramInference} is misleading.
  *
  * <p>This interface has update* methods that should be called at certain (pseudo-)assignments, and
  * they may update the type of the LHS of the (pseudo-)assignment based on the type of the RHS. In
@@ -136,17 +141,20 @@ public interface WholeProgramInference {
      * be the type of rhs. If there is a stored entry/type for lhs, its new type will be the LUB
      * between the previous type and the type of rhs.
      *
-     * @param field the field whose type will be refined
+     * @param field the field whose type will be refined. Must be either a FieldAccessNode or a
+     *     LocalVariableNode whose element kind is FIELD.
      * @param rhs the expression being assigned to the field
      * @param classTree the ClassTree for the enclosing class of the assignment
      * @param atf the annotated type factory of a given type system, whose type hierarchy will be
      *     used to update the field's type
      */
     void updateFromFieldAssignment(
-            FieldAccessNode field, Node rhs, ClassTree classTree, AnnotatedTypeFactory atf);
+            Node field, Node rhs, ClassTree classTree, AnnotatedTypeFactory atf);
 
     /**
      * Updates the return type of the method {@code methodTree} based on {@code returnedExpression}.
+     * Also updates the return types of any methods that this method overrides that are available as
+     * source code.
      *
      * <p>If there is no stored annotated return type for the method methodTree, then the type of
      * the return expression will be added to the return type of that method. If there is a stored
@@ -156,6 +164,8 @@ public interface WholeProgramInference {
      * @param retNode the node that contains the expression returned
      * @param classSymbol the symbol of the class that contains the method
      * @param methodTree the tree of the method whose return type may be updated
+     * @param overriddenMethods the methods that the given method return overrides, indexed by the
+     *     annotated type of the superclass in which each method is defined
      * @param atf the annotated type factory of a given type system, whose type hierarchy will be
      *     used to update the method's return type
      */
@@ -163,10 +173,38 @@ public interface WholeProgramInference {
             ReturnNode retNode,
             ClassSymbol classSymbol,
             MethodTree methodTree,
+            Map<AnnotatedDeclaredType, ExecutableElement> overriddenMethods,
             AnnotatedTypeFactory atf);
 
     /**
-     * Saves the inferred results. Ideally should be called at the end of the type-checking process.
+     * Updates a method to add a declaration annotation.
+     *
+     * @param methodElt the method to annotate
+     * @param anno the declaration annotation to add to the method
      */
-    void saveResults();
+    void addMethodDeclarationAnnotation(ExecutableElement methodElt, AnnotationMirror anno);
+
+    /**
+     * Writes the inferred results to a file. Ideally should be called at the end of the
+     * type-checking process.
+     *
+     * @param format the file format in which to write the results
+     * @param checker the checker from which this method is called, for naming stub files
+     */
+    void writeResultsToFile(OutputFormat format, BaseTypeChecker checker);
+
+    /** The kinds of output that whole-program inference can produce. */
+    enum OutputFormat {
+        /**
+         * Output the results of whole-program inference as a stub file that can be parsed back into
+         * the Checker Framework by the Stub Parser.
+         */
+        STUB(),
+
+        /**
+         * Output the results of whole-program inference as a Java annotation index file. The
+         * Annotation File Utilities project contains code for reading and writing .jaif files.
+         */
+        JAIF()
+    }
 }

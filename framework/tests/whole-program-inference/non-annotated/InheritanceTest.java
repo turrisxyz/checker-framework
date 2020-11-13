@@ -1,4 +1,4 @@
-import testlib.wholeprograminference.qual.*;
+import org.checkerframework.framework.testchecker.wholeprograminference.qual.WholeProgramInferenceBottom;
 
 class IParent {
     int field;

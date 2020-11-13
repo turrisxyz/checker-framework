@@ -1,9 +1,5 @@
 package org.checkerframework.framework.util;
 
-import static org.checkerframework.framework.util.Contract.Kind.CONDITIONALPOSTCONDITION;
-import static org.checkerframework.framework.util.Contract.Kind.POSTCONDITION;
-import static org.checkerframework.framework.util.Contract.Kind.PRECONDITION;
-
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -29,7 +25,7 @@ import org.checkerframework.javacutil.AnnotationUtils;
 import org.checkerframework.javacutil.Pair;
 
 /**
- * A utility class to handle pre- and postconditions.
+ * A utility class to retrieve pre- and postconditions from a method.
  *
  * @see PreconditionAnnotation
  * @see RequiresQualifier
@@ -38,30 +34,20 @@ import org.checkerframework.javacutil.Pair;
  * @see ConditionalPostconditionAnnotation
  * @see EnsuresQualifierIf
  */
-// TODO: This class assumes that most annotations have a field named "expression".
-// If not, issue a more helpful error message.
+// TODO: This class assumes that most annotations have a field named "expression". If not, issue a
+// more helpful error message.
 public class ContractsUtils {
-
-    /**
-     * The currently-used ContractsUtils object. This class is NOT a singleton: this value can
-     * change.
-     */
-    protected static ContractsUtils instance;
 
     /** The factory that this ContractsUtils is associated with. */
     protected GenericAnnotatedTypeFactory<?, ?, ?, ?> factory;
 
-    /** Creates a ContractsUtils for the given factory. */
-    private ContractsUtils(GenericAnnotatedTypeFactory<?, ?, ?, ?> factory) {
+    /**
+     * Creates a ContractsUtils for the given factory.
+     *
+     * @param factory the type factory associated with the newly-created ContractsUtils
+     */
+    public ContractsUtils(GenericAnnotatedTypeFactory<?, ?, ?, ?> factory) {
         this.factory = factory;
-    }
-
-    /** Returns an instance of the {@link ContractsUtils} class. */
-    public static ContractsUtils getInstance(GenericAnnotatedTypeFactory<?, ?, ?, ?> factory) {
-        if (instance == null || instance.factory != factory) {
-            instance = new ContractsUtils(factory);
-        }
-        return instance;
     }
 
     /**
@@ -87,7 +73,7 @@ public class ContractsUtils {
      * @return the contracts on {@code executableElement}
      */
     public Set<Contract.Precondition> getPreconditions(ExecutableElement executableElement) {
-        return getContracts(executableElement, PRECONDITION, Contract.Precondition.class);
+        return getContracts(executableElement, Kind.PRECONDITION, Contract.Precondition.class);
     }
 
     /// Postcondition methods (keep in sync with other two types)
@@ -99,7 +85,7 @@ public class ContractsUtils {
      * @return the contracts on {@code executableElement}
      */
     public Set<Contract.Postcondition> getPostconditions(ExecutableElement executableElement) {
-        return getContracts(executableElement, POSTCONDITION, Contract.Postcondition.class);
+        return getContracts(executableElement, Kind.POSTCONDITION, Contract.Postcondition.class);
     }
 
     /// Conditional postcondition methods (keep in sync with other two types)
@@ -113,7 +99,9 @@ public class ContractsUtils {
     public Set<Contract.ConditionalPostcondition> getConditionalPostconditions(
             ExecutableElement methodElement) {
         return getContracts(
-                methodElement, CONDITIONALPOSTCONDITION, Contract.ConditionalPostcondition.class);
+                methodElement,
+                Kind.CONDITIONALPOSTCONDITION,
+                Contract.ConditionalPostcondition.class);
     }
 
     /// Helper methods
@@ -190,6 +178,7 @@ public class ContractsUtils {
                 factory.getDeclAnnotationWithMetaAnnotation(executableElement, kind.metaAnnotation);
         for (Pair<AnnotationMirror, AnnotationMirror> r : declAnnotations) {
             AnnotationMirror anno = r.first;
+            // contractAnno is the meta-annotation on anno.
             AnnotationMirror contractAnno = r.second;
             AnnotationMirror enforcedQualifier =
                     getQualifierEnforcedByContractAnnotation(contractAnno, anno);

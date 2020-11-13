@@ -26,13 +26,14 @@ import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic.Kind;
+import org.checkerframework.checker.signature.qual.CanonicalNameOrEmpty;
 import org.checkerframework.framework.qual.StubFiles;
 import org.checkerframework.framework.source.SourceChecker;
 import org.checkerframework.framework.type.AnnotatedTypeFactory;
 import org.checkerframework.framework.type.AnnotatedTypeMirror;
 import org.checkerframework.javacutil.BugInCF;
 import org.checkerframework.javacutil.ElementUtils;
-import org.checkerframework.javacutil.PluginUtil;
+import org.checkerframework.javacutil.SystemUtil;
 
 /** Holds information about types parsed from stub files. */
 public class StubTypes {
@@ -43,7 +44,7 @@ public class StubTypes {
      * Declaration annotations read from stub files (but not those from the annotated JDK jar file).
      * Map keys cannot be Element, because a different Element appears in the stub files than in the
      * real files. So, map keys are the verbose element name, as returned by
-     * ElementUtils.getVerboseName.
+     * ElementUtils.getQualifiedName.
      */
     private final Map<String, Set<AnnotationMirror>> declAnnosFromStubFiles;
 
@@ -72,23 +73,32 @@ public class StubTypes {
     /** Should the JDK be parsed? */
     private final boolean shouldParseJdk;
 
-    /** Creates a stub type. */
+    /** Parse all JDK files at startup rather than as needed. */
+    private final boolean parseAllJdkFiles;
+
+    /**
+     * Creates a stub type.
+     *
+     * @param factory AnnotatedTypeFactory
+     */
     public StubTypes(AnnotatedTypeFactory factory) {
         this.factory = factory;
         this.typesFromStubFiles = new HashMap<>();
         this.declAnnosFromStubFiles = new HashMap<>();
         this.parsing = false;
-        String release = PluginUtil.getReleaseValue(factory.getProcessingEnv());
+        String release = SystemUtil.getReleaseValue(factory.getProcessingEnv());
         this.annotatedJdkVersion =
-                release != null ? release : String.valueOf(PluginUtil.getJreVersion());
+                release != null ? release : String.valueOf(SystemUtil.getJreVersion());
 
-        this.shouldParseJdk =
-                !factory.getContext().getChecker().hasOption("ignorejdkastub")
-                        && PluginUtil.getJreVersion() != 8
-                        && annotatedJdkVersion.equals("11");
+        this.shouldParseJdk = !factory.getContext().getChecker().hasOption("ignorejdkastub");
+        this.parseAllJdkFiles = factory.getContext().getChecker().hasOption("parseAllJdk");
     }
 
-    /** @return true if stub files are currently being parsed; otherwise, false. */
+    /**
+     * Returns true if stub files are currently being parsed; otherwise, false.
+     *
+     * @return true if stub files are currently being parsed; otherwise, false
+     */
     public boolean isParsing() {
         return parsing;
     }
@@ -170,7 +180,7 @@ public class StubTypes {
             Collections.addAll(allStubFiles, stubEnvVar.split(File.pathSeparator));
         }
 
-        // 5. Stub files provided via stubs option
+        // 5. Stub files provided via stubs command-line option
         String stubsOption = checker.getOption("stubs");
         if (stubsOption != null) {
             Collections.addAll(allStubFiles, stubsOption.split(File.pathSeparator));
@@ -188,26 +198,53 @@ public class StubTypes {
             if (stubs.isEmpty()) {
                 // If the stub file has a prefix of "checker.jar/" then look for the file in the top
                 // level directory of the jar that contains the checker.
-                stubPath = stubPath.replace("checker.jar/", "/");
+                if (stubPath.startsWith("checker.jar/")) {
+                    stubPath = stubPath.substring("checker.jar/".length());
+                }
                 InputStream in = checker.getClass().getResourceAsStream(stubPath);
                 if (in == null) {
-                    // Didn't find the stubfile.
-                    URL topLevelResource = checker.getClass().getResource("/" + stubPath);
-                    if (topLevelResource != null) {
-                        checker.message(
-                                Kind.WARNING,
-                                stubPath
-                                        + " should be in the same directory as "
-                                        + checker.getClass().getSimpleName()
-                                        + ".class, but is at the top level of a jar file: "
-                                        + topLevelResource);
-                    } else {
+                    // Didn't find the stub file.
+
+                    // When using a compound checker, the target stub file may be found by the
+                    // current checker's parent checkers. Also check this to avoid a false
+                    // warning. Currently, only the original checker will try to parse the target
+                    // stub file, the parent checkers are only used to reduce false warnings.
+                    SourceChecker currentChecker = checker;
+                    boolean findByParentCheckers = false;
+                    while (currentChecker != null) {
+                        URL topLevelResource =
+                                currentChecker.getClass().getResource("/" + stubPath);
+                        if (topLevelResource != null) {
+                            currentChecker.message(
+                                    Kind.WARNING,
+                                    stubPath
+                                            + " should be in the same directory as "
+                                            + currentChecker.getClass().getSimpleName()
+                                            + ".class, but is at the top level of a jar file: "
+                                            + topLevelResource);
+                            findByParentCheckers = true;
+                            break;
+                        } else {
+                            currentChecker = currentChecker.getParentChecker();
+                        }
+                    }
+                    // If there exists one parent checker which can find this stub file, don't
+                    // report an warning.
+                    if (!findByParentCheckers) {
+                        File stubPathParent = new File(stubPath).getParentFile();
+                        String stubPathParentDescription =
+                                (stubPathParent == null
+                                        ? "current directory"
+                                        : "directory "
+                                                + new File(stubPath)
+                                                        .getParentFile()
+                                                        .getAbsolutePath());
                         checker.message(
                                 Kind.WARNING,
                                 "Did not find stub file "
                                         + stubPath
-                                        + " on classpath or within directory "
-                                        + new File(stubPath).getAbsolutePath()
+                                        + " on classpath or within "
+                                        + stubPathParentDescription
                                         + (stubPathFull.equals(stubPath)
                                                 ? ""
                                                 : (" or at " + stubPathFull)));
@@ -278,7 +315,7 @@ public class StubTypes {
         }
 
         parseEnclosingClass(elt);
-        String eltName = ElementUtils.getVerboseName(elt);
+        String eltName = ElementUtils.getQualifiedName(elt);
         if (declAnnosFromStubFiles.containsKey(eltName)) {
             return declAnnosFromStubFiles.get(eltName);
         }
@@ -289,14 +326,14 @@ public class StubTypes {
      * Parses the outermost enclosing class of {@code e} if there exists a stub file for it and it
      * has not already been parsed.
      *
-     * @param e element whose outermost enclosing class will be parsed.
+     * @param e element whose outermost enclosing class will be parsed
      */
     private void parseEnclosingClass(Element e) {
         if (!shouldParseJdk) {
             return;
         }
-        String className = getOuterMostEnclosingClass(e);
-        if (className == null) {
+        String className = getOutermostEnclosingClass(e);
+        if (className == null || className.isEmpty()) {
             return;
         }
         if (jdkStubFiles.containsKey(className)) {
@@ -309,10 +346,14 @@ public class StubTypes {
     }
 
     /**
-     * @return the fully qualified name of the outermost enclosing class of {@code e} or {@code
-     *     null} if no such class exists for {@code e}.
+     * Returns the fully qualified name of the outermost enclosing class of {@code e} or {@code
+     * null} if no such class exists for {@code e}.
+     *
+     * @param e an element whose outermost enclosing class to return
+     * @return the canonical name of the outermost enclosing class of {@code e} or {@code null} if
+     *     no such class exists for {@code e}
      */
-    private String getOuterMostEnclosingClass(Element e) {
+    private @CanonicalNameOrEmpty String getOutermostEnclosingClass(Element e) {
         TypeElement enclosingClass = ElementUtils.enclosingClass(e);
         if (enclosingClass == null) {
             return null;
@@ -328,7 +369,12 @@ public class StubTypes {
             }
             enclosingClass = t;
         }
-        return enclosingClass.getQualifiedName().toString();
+        @SuppressWarnings(
+                "signature:assignment.type.incompatible" // https://tinyurl.com/cfissue/658:
+        // Name.toString should be @PolySignature
+        )
+        @CanonicalNameOrEmpty String result = enclosingClass.getQualifiedName().toString();
+        return result;
     }
 
     /**
@@ -384,9 +430,13 @@ public class StubTypes {
         }
     }
 
-    /** @return JarURLConnection to "/jdk*" */
+    /**
+     * Returns a JarURLConnection to "/jdk*".
+     *
+     * @return a JarURLConnection to "/jdk*"
+     */
     private JarURLConnection getJarURLConnectionToJdk() {
-        URL resourceURL = factory.getClass().getResource("/jdk" + annotatedJdkVersion);
+        URL resourceURL = factory.getClass().getResource("/annotated-jdk");
         JarURLConnection connection;
         try {
             connection = (JarURLConnection) resourceURL.openConnection();
@@ -411,7 +461,7 @@ public class StubTypes {
         if (!shouldParseJdk) {
             return;
         }
-        URL resourceURL = factory.getClass().getResource("/jdk" + annotatedJdkVersion);
+        URL resourceURL = factory.getClass().getResource("/annotated-jdk");
         if (resourceURL == null) {
             if (factory.getContext().getChecker().hasOption("permitMissingJdk")
                     // temporary, for backward compatibility
@@ -456,6 +506,14 @@ public class StubTypes {
                     parseStubFile(path);
                     continue;
                 }
+                if (path.getFileName().toString().equals("module-info.java")) {
+                    // JavaParser can't parse module-info files, so skip them.
+                    continue;
+                }
+                if (parseAllJdkFiles) {
+                    parseStubFile(path);
+                    continue;
+                }
                 Path relativePath = root.relativize(path);
                 // 4: /src/<module>/share/classes
                 Path savepath = relativePath.subpath(4, relativePath.getNameCount());
@@ -464,7 +522,7 @@ public class StubTypes {
                 jdkStubFiles.put(s, path);
             }
         } catch (IOException e) {
-            throw new BugInCF("File Not Found", e);
+            throw new BugInCF("prepJdkFromFile(" + resourceURL + ")", e);
         }
     }
 
@@ -478,20 +536,27 @@ public class StubTypes {
         JarURLConnection connection = getJarURLConnectionToJdk();
 
         try (JarFile jarFile = connection.getJarFile()) {
-            for (JarEntry je : jarFile.stream().collect(Collectors.toList())) {
+            for (JarEntry jarEntry : jarFile.stream().collect(Collectors.toList())) {
                 // filter out directories and non-class files
-                if (!je.isDirectory()
-                        && je.getName().endsWith(".java")
-                        && je.getName().startsWith("jdk" + annotatedJdkVersion)) {
-                    String jeNAme = je.getName();
-                    int index = je.getName().indexOf("/share/classes/");
+                if (!jarEntry.isDirectory()
+                        && jarEntry.getName().endsWith(".java")
+                        && jarEntry.getName().startsWith("annotated-jdk")
+                        // JavaParser can't parse module-info files, so skip them.
+                        && !jarEntry.getName().contains("module-info")) {
+                    String jarEntryName = jarEntry.getName();
+                    if (parseAllJdkFiles) {
+                        parseJarEntry(jarEntryName);
+                        continue;
+                    }
+                    int index = jarEntry.getName().indexOf("/share/classes/");
                     String shortName =
-                            jeNAme.substring(index + "/share/classes/".length())
+                            jarEntryName
+                                    .substring(index + "/share/classes/".length())
                                     .replace(".java", "")
                                     .replace('/', '.');
-                    jdkStubFilesJar.put(shortName, jeNAme);
-                    if (jeNAme.endsWith("package-info.java")) {
-                        parseJarEntry(jeNAme);
+                    jdkStubFilesJar.put(shortName, jarEntryName);
+                    if (jarEntryName.endsWith("package-info.java")) {
+                        parseJarEntry(jarEntryName);
                     }
                 }
             }

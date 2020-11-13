@@ -18,7 +18,7 @@ import javax.lang.model.type.NullType;
 import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
-import javax.lang.model.util.SimpleElementVisitor7;
+import javax.lang.model.util.SimpleElementVisitor8;
 import javax.lang.model.util.SimpleTypeVisitor7;
 import org.checkerframework.checker.compilermsgs.qual.CompilerMessageKey;
 import org.checkerframework.checker.formatter.qual.ConversionCategory;
@@ -26,7 +26,7 @@ import org.checkerframework.checker.formatter.qual.Format;
 import org.checkerframework.checker.formatter.qual.FormatMethod;
 import org.checkerframework.checker.formatter.qual.InvalidFormat;
 import org.checkerframework.checker.formatter.qual.ReturnsFormat;
-import org.checkerframework.checker.signature.qual.BinaryName;
+import org.checkerframework.checker.signature.qual.ClassGetName;
 import org.checkerframework.common.basetype.BaseTypeChecker;
 import org.checkerframework.dataflow.cfg.node.ArrayCreationNode;
 import org.checkerframework.dataflow.cfg.node.FieldAccessNode;
@@ -351,16 +351,28 @@ public class FormatterTreeUtil {
         }
     }
 
-    /** Reports an error. Takes a {@link Result} to report the location. */
-    public final <E> void failure(Result<E> res, @CompilerMessageKey String msg, Object... args) {
-        checker.report(
-                org.checkerframework.framework.source.Result.failure(msg, args), res.location);
+    // The failure() method is required so that FormatterTransfer, which has no access to the
+    // FormatterChecker, can report errors.
+    /**
+     * Reports an error.
+     *
+     * @param res used for source location information
+     * @param msgKey the diagnostic message key
+     * @param args arguments to the diagnostic message
+     */
+    public final void failure(Result<?> res, @CompilerMessageKey String msgKey, Object... args) {
+        checker.reportError(res.location, msgKey, args);
     }
 
-    /** Reports an warning. Takes a {@link Result} to report the location. */
-    public final <E> void warning(Result<E> res, @CompilerMessageKey String msg, Object... args) {
-        checker.report(
-                org.checkerframework.framework.source.Result.warning(msg, args), res.location);
+    /**
+     * Reports a warning.
+     *
+     * @param res used for source location information
+     * @param msgKey the diagnostic message key
+     * @param args arguments to the diagnostic message
+     */
+    public final void warning(Result<?> res, @CompilerMessageKey String msgKey, Object... args) {
+        checker.reportWarning(res.location, msgKey, args);
     }
 
     /**
@@ -445,15 +457,17 @@ public class FormatterTreeUtil {
         public Class<? extends Object> visitDeclared(DeclaredType dt, Class<Void> v) {
             return dt.asElement()
                     .accept(
-                            new SimpleElementVisitor7<Class<? extends Object>, Class<Void>>() {
+                            new SimpleElementVisitor8<Class<? extends Object>, Class<Void>>() {
                                 @Override
                                 public Class<? extends Object> visitType(
                                         TypeElement e, Class<Void> v) {
                                     try {
                                         @SuppressWarnings(
-                                                "signature") // https://tinyurl.com/cfissue/658:
-                                        // Name.toString should be @PolySignature
-                                        @BinaryName String cname = e.getQualifiedName().toString();
+                                                "signature" // BUG: need to compute a @ClassGetName,
+                                        // but this code computes a @CanonicalNameOrEmpty.  They are
+                                        // different for inner classes.
+                                        )
+                                        @ClassGetName String cname = e.getQualifiedName().toString();
                                         return Class.forName(cname);
                                     } catch (ClassNotFoundException e1) {
                                         return null; // the lookup should work for all

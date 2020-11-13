@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.StringJoiner;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ExecutableElement;
@@ -26,14 +27,13 @@ import org.checkerframework.checker.compilermsgs.qual.CompilerMessageKey;
 import org.checkerframework.checker.nullness.NullnessChecker;
 import org.checkerframework.common.basetype.BaseTypeChecker;
 import org.checkerframework.common.basetype.BaseTypeVisitor;
-import org.checkerframework.dataflow.analysis.FlowExpressions.ClassName;
-import org.checkerframework.dataflow.analysis.FlowExpressions.FieldAccess;
-import org.checkerframework.dataflow.analysis.FlowExpressions.LocalVariable;
-import org.checkerframework.dataflow.analysis.FlowExpressions.Receiver;
-import org.checkerframework.dataflow.analysis.FlowExpressions.ThisReference;
+import org.checkerframework.dataflow.expression.ClassName;
+import org.checkerframework.dataflow.expression.FieldAccess;
+import org.checkerframework.dataflow.expression.LocalVariable;
+import org.checkerframework.dataflow.expression.Receiver;
+import org.checkerframework.dataflow.expression.ThisReference;
 import org.checkerframework.framework.flow.CFAbstractStore;
 import org.checkerframework.framework.flow.CFAbstractValue;
-import org.checkerframework.framework.source.Result;
 import org.checkerframework.framework.type.AnnotatedTypeMirror;
 import org.checkerframework.framework.type.AnnotatedTypeMirror.AnnotatedDeclaredType;
 import org.checkerframework.framework.type.AnnotatedTypeMirror.AnnotatedExecutableType;
@@ -111,7 +111,10 @@ public class InitializationVisitor<
 
     @Override
     protected void commonAssignmentCheck(
-            Tree varTree, ExpressionTree valueExp, @CompilerMessageKey String errorKey) {
+            Tree varTree,
+            ExpressionTree valueExp,
+            @CompilerMessageKey String errorKey,
+            Object... extraArgs) {
         // field write of the form x.f = y
         if (TreeUtils.isFieldAccess(varTree)) {
             // cast is safe: a field access can only be an IdentifierTree or
@@ -128,21 +131,21 @@ public class InitializationVisitor<
             if (!AnnotationUtils.containsSameByName(
                     fieldAnnotations, atypeFactory.UNKNOWN_INITIALIZATION)) {
                 if (!ElementUtils.isStatic(el)
-                        && !(atypeFactory.isCommitted(yType)
-                                || atypeFactory.isFree(xType)
+                        && !(atypeFactory.isInitialized(yType)
+                                || atypeFactory.isUnderInitialization(xType)
                                 || atypeFactory.isFbcBottom(yType))) {
                     @CompilerMessageKey String err;
-                    if (atypeFactory.isCommitted(xType)) {
+                    if (atypeFactory.isInitialized(xType)) {
                         err = COMMITMENT_INVALID_FIELD_WRITE_INITIALIZED;
                     } else {
                         err = COMMITMENT_INVALID_FIELD_WRITE_UNKNOWN_INITIALIZATION;
                     }
-                    checker.report(Result.failure(err, varTree), varTree);
+                    checker.reportError(varTree, err, varTree);
                     return; // prevent issuing another errow about subtyping
                 }
             }
         }
-        super.commonAssignmentCheck(varTree, valueExp, errorKey);
+        super.commonAssignmentCheck(varTree, valueExp, errorKey, extraArgs);
     }
 
     @Override
@@ -154,11 +157,11 @@ public class InitializationVisitor<
             // Fields cannot have commitment annotations.
             for (Class<? extends Annotation> c : atypeFactory.getInitializationAnnotations()) {
                 for (AnnotationMirror a : annotationMirrors) {
-                    if (atypeFactory.isUnclassified(a)) {
-                        continue; // unclassified is allowed
+                    if (atypeFactory.isUnknownInitialization(a)) {
+                        continue; // unknown initialization is allowed
                     }
                     if (atypeFactory.areSameByClass(a, c)) {
-                        checker.report(Result.failure(COMMITMENT_INVALID_FIELD_TYPE, node), node);
+                        checker.reportError(node, COMMITMENT_INVALID_FIELD_TYPE, node);
                         break;
                     }
                 }
@@ -208,17 +211,17 @@ public class InitializationVisitor<
                 return false;
             }
 
-            boolean isRecvCommitted = false;
+            boolean isRecvInitialized = false;
             for (AnnotationMirror anno : recvAnnoSet) {
-                if (atypeFactory.isCommitted(anno)) {
-                    isRecvCommitted = true;
+                if (atypeFactory.isInitialized(anno)) {
+                    isRecvInitialized = true;
                 }
             }
 
             AnnotatedTypeMirror fieldType = atypeFactory.getAnnotatedType(fa.getField());
             // The receiver is fully initialized and the field type
             // has the invariant type.
-            if (isRecvCommitted
+            if (isRecvInitialized
                     && AnnotationUtils.containsSame(fieldType.getAnnotations(), invariantAnno)) {
                 return true;
             }
@@ -258,12 +261,11 @@ public class InitializationVisitor<
         }
 
         if (!isSubtype) {
-            checker.report(
-                    Result.failure(
-                            COMMITMENT_INVALID_CAST,
-                            annoFormatter.formatAnnotationMirror(exprAnno),
-                            annoFormatter.formatAnnotationMirror(castAnno)),
-                    node);
+            checker.reportError(
+                    node,
+                    COMMITMENT_INVALID_CAST,
+                    annoFormatter.formatAnnotationMirror(exprAnno),
+                    annoFormatter.formatAnnotationMirror(castAnno));
             return p; // suppress cast.unsafe warning
         }
 
@@ -319,9 +321,7 @@ public class InitializationVisitor<
                     atypeFactory.getInvalidConstructorReturnTypeAnnotations()) {
                 for (AnnotationMirror a : returnTypeAnnotations) {
                     if (atypeFactory.areSameByClass(a, c)) {
-                        checker.report(
-                                Result.failure(COMMITMENT_INVALID_CONSTRUCTOR_RETURN_TYPE, node),
-                                node);
+                        checker.reportError(node, COMMITMENT_INVALID_CONSTRUCTOR_RETURN_TYPE, node);
                         break;
                     }
                 }
@@ -407,17 +407,11 @@ public class InitializationVisitor<
         }
 
         if (!violatingFields.isEmpty()) {
-            StringBuilder fieldsString = new StringBuilder();
-            boolean first = true;
+            StringJoiner fieldsString = new StringJoiner(", ");
             for (VariableTree f : violatingFields) {
-                if (!first) {
-                    fieldsString.append(", ");
-                }
-                first = false;
-                fieldsString.append(f.getName());
+                fieldsString.add(f.getName());
             }
-            checker.report(
-                    Result.failure(COMMITMENT_FIELDS_UNINITIALIZED_KEY, fieldsString), blockNode);
+            checker.reportError(blockNode, COMMITMENT_FIELDS_UNINITIALIZED_KEY, fieldsString);
         }
     }
 }

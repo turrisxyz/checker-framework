@@ -33,7 +33,8 @@ def clone_or_update_repos(auto):
     """Clone the relevant repos from scratch or update them if they exist and
     if directed to do so by the user."""
     message = """Before building the release, we clone or update the release repositories.
-However, if you have had to run the script multiple times and no files have changed, you may skip this step.
+However, if you have had to run the script multiple times today and no files
+have changed since the last attempt, you may skip this step.
 WARNING: IF THIS IS YOUR FIRST RUN OF THE RELEASE ON RELEASE DAY, DO NOT SKIP THIS STEP.
 The following repositories will be cloned or updated from their origins:
 """
@@ -169,17 +170,7 @@ def build_annotation_tools_release(version, afu_interm_dir):
     update_project_dev_website("annotation-file-utilities", version)
 
 def build_and_locally_deploy_maven(version):
-    protocol_length = len("file://")
-    maven_dev_repo_without_protocol = MAVEN_DEV_REPO[protocol_length:]
-
-    execute("mkdir -p " + maven_dev_repo_without_protocol)
-
-    # Deploy jars to Maven Central repo
-    mvn_deploy(CHECKER_BINARY, CHECKER_BINARY_POM, MAVEN_DEV_REPO)
-    mvn_deploy(CHECKER_QUAL, CHECKER_QUAL_POM, MAVEN_DEV_REPO)
-    mvn_deploy(JDK8_BINARY, JDK8_BINARY_POM, MAVEN_DEV_REPO)
-
-    return
+    execute("./gradlew deployArtifactsToLocalRepo", working_dir=CHECKER_FRAMEWORK)
 
 def build_checker_framework_release(version, old_cf_version, afu_version, afu_release_date, checker_framework_interm_dir, manual_only=False):
     """Build the release files for the Checker Framework project, including the
@@ -201,10 +192,11 @@ def build_checker_framework_release(version, old_cf_version, afu_version, afu_re
     execute(ant_cmd, True, False, CHECKER_FRAMEWORK_RELEASE)
 
     # Check that updating versions didn't overlook anything.
-    print "Here are occurrences of the old version number, " + old_cf_version
     old_cf_version_regex = old_cf_version.replace('.', '\.')
     find_cmd = 'find . -type d \( -path \*/build -o -path \*/.git \) -prune  -o \! -type d \( -name \*\~ -o -name \*.bin \) -prune -o  -type f -exec grep -i -n -e \'\b%s\b\' {} +' % old_cf_version_regex
-    execute(find_cmd, False, True, CHECKER_FRAMEWORK_RELEASE)
+    old_version_occurrences = execute(find_cmd, True, False, CHECKER_FRAMEWORK)
+    print "Here are occurrences of the old version number, " + old_cf_version
+    print old_version_occurrences
     continue_or_exit("If any occurrence is not acceptable, then stop the release, update target \"update-checker-framework-versions\" in file release.xml, and start over.")
 
     if not manual_only:

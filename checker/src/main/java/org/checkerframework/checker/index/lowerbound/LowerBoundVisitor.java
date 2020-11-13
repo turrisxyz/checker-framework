@@ -11,7 +11,6 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.index.qual.Positive;
 import org.checkerframework.common.basetype.BaseTypeChecker;
 import org.checkerframework.common.basetype.BaseTypeVisitor;
-import org.checkerframework.framework.source.Result;
 import org.checkerframework.framework.type.AnnotatedTypeMirror;
 import org.checkerframework.framework.util.FlowExpressionParseUtil;
 
@@ -40,7 +39,7 @@ public class LowerBoundVisitor extends BaseTypeVisitor<LowerBoundAnnotatedTypeFa
         AnnotatedTypeMirror indexType = atypeFactory.getAnnotatedType(index);
         if (!(indexType.hasAnnotation(NonNegative.class)
                 || indexType.hasAnnotation(Positive.class))) {
-            checker.report(Result.failure(LOWER_BOUND, indexType.toString(), arrName), index);
+            checker.reportError(index, LOWER_BOUND, indexType.toString(), arrName);
         }
 
         return super.visitArrayAccess(tree, type);
@@ -53,7 +52,7 @@ public class LowerBoundVisitor extends BaseTypeVisitor<LowerBoundAnnotatedTypeFa
                 AnnotatedTypeMirror dimType = atypeFactory.getAnnotatedType(dim);
                 if (!(dimType.hasAnnotation(NonNegative.class)
                         || dimType.hasAnnotation(Positive.class))) {
-                    checker.report(Result.failure(NEGATIVE_ARRAY, dimType.toString()), dim);
+                    checker.reportError(dim, NEGATIVE_ARRAY, dimType.toString());
                 }
             }
         }
@@ -63,7 +62,10 @@ public class LowerBoundVisitor extends BaseTypeVisitor<LowerBoundAnnotatedTypeFa
 
     @Override
     protected void commonAssignmentCheck(
-            Tree varTree, ExpressionTree valueTree, @CompilerMessageKey String errorKey) {
+            Tree varTree,
+            ExpressionTree valueTree,
+            @CompilerMessageKey String errorKey,
+            Object... extraArgs) {
 
         // check that when an assignment to a variable declared as @HasSubsequence(a, from, to)
         // occurs, from is non-negative.
@@ -81,13 +83,14 @@ public class LowerBoundVisitor extends BaseTypeVisitor<LowerBoundAnnotatedTypeFa
             if (anm == null
                     || !(atypeFactory.areSameByClass(anm, NonNegative.class)
                             || atypeFactory.areSameByClass(anm, Positive.class))) {
-                checker.report(
-                        Result.failure(
-                                FROM_NOT_NN, subSeq.from, anm == null ? "@LowerBoundUnknown" : anm),
-                        valueTree);
+                checker.reportError(
+                        valueTree,
+                        FROM_NOT_NN,
+                        subSeq.from,
+                        anm == null ? "@LowerBoundUnknown" : anm);
             }
         }
 
-        super.commonAssignmentCheck(varTree, valueTree, errorKey);
+        super.commonAssignmentCheck(varTree, valueTree, errorKey, extraArgs);
     }
 }

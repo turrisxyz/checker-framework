@@ -32,12 +32,12 @@ import org.checkerframework.checker.i18nformatter.qual.I18nMakeFormat;
 import org.checkerframework.checker.i18nformatter.qual.I18nValidFormat;
 import org.checkerframework.checker.signature.qual.BinaryName;
 import org.checkerframework.common.basetype.BaseTypeChecker;
-import org.checkerframework.dataflow.analysis.FlowExpressions.Receiver;
 import org.checkerframework.dataflow.cfg.node.ArrayCreationNode;
 import org.checkerframework.dataflow.cfg.node.FieldAccessNode;
 import org.checkerframework.dataflow.cfg.node.MethodInvocationNode;
 import org.checkerframework.dataflow.cfg.node.Node;
 import org.checkerframework.dataflow.cfg.node.StringLiteralNode;
+import org.checkerframework.dataflow.expression.Receiver;
 import org.checkerframework.framework.type.AnnotatedTypeFactory;
 import org.checkerframework.framework.type.AnnotatedTypeMirror;
 import org.checkerframework.framework.type.AnnotatedTypeMirror.AnnotatedExecutableType;
@@ -151,16 +151,26 @@ public class I18nFormatterTreeUtil {
         return anno != null;
     }
 
-    /** Reports an error. Takes a {@link Result} to report the location. */
-    public final <E> void failure(Result<E> res, @CompilerMessageKey String msg, Object... args) {
-        checker.report(
-                org.checkerframework.framework.source.Result.failure(msg, args), res.location);
+    /**
+     * Reports an error.
+     *
+     * @param res used for source location information
+     * @param msgKey the diagnostic message key
+     * @param args arguments to the diagnostic message
+     */
+    public final void failure(Result<?> res, @CompilerMessageKey String msgKey, Object... args) {
+        checker.reportError(res.location, msgKey, args);
     }
 
-    /** Reports an warning. Takes a {@link Result} to report the location. */
-    public final <E> void warning(Result<E> res, @CompilerMessageKey String msg, Object... args) {
-        checker.report(
-                org.checkerframework.framework.source.Result.warning(msg, args), res.location);
+    /**
+     * Reports a warning.
+     *
+     * @param res used for source location information
+     * @param msgKey the diagnostic message key
+     * @param args arguments to the diagnostic message
+     */
+    public final void warning(Result<?> res, @CompilerMessageKey String msgKey, Object... args) {
+        checker.reportWarning(res.location, msgKey, args);
     }
 
     private I18nConversionCategory[] asFormatCallCategoriesLowLevel(MethodInvocationNode node) {
@@ -226,14 +236,19 @@ public class I18nFormatterTreeUtil {
     /**
      * Represents a format method invocation in the syntax tree.
      *
-     * <p>An I18nFormatCall instance can only be instantiated by createFormatForCall method
+     * <p>An I18nFormatCall instance can only be instantiated by the createFormatForCall method.
      */
     public class I18nFormatCall {
 
-        private final ExpressionTree tree;
+        /** The AST node for the call. */
+        private final MethodInvocationTree tree;
+        /** The format string argument. */
         private ExpressionTree formatArg;
+        /** The type factory. */
         private final AnnotatedTypeFactory atypeFactory;
+        /** The arguments to the format string. */
         private List<? extends ExpressionTree> args;
+        /** Extra description for error messages. */
         private String invalidMessage;
 
         private AnnotatedTypeMirror formatAnno;
@@ -249,6 +264,15 @@ public class I18nFormatterTreeUtil {
             ExecutableElement method = TreeUtils.elementFromUse(tree);
             AnnotatedExecutableType methodAnno = atypeFactory.getAnnotatedType(method);
             initialCheck(theargs, method, node, methodAnno);
+        }
+
+        /**
+         * Returns the AST node for the call.
+         *
+         * @return the AST node for the call
+         */
+        public MethodInvocationTree getTree() {
+            return tree;
         }
 
         @Override
@@ -297,10 +321,7 @@ public class I18nFormatterTreeUtil {
                             paramIndex = flowExprContext.arguments.indexOf(paramArg);
                         } catch (FlowExpressionParseException e) {
                             // report errors here
-                            checker.report(
-                                    org.checkerframework.framework.source.Result.failure(
-                                            "i18nformat.invalid.formatfor"),
-                                    tree);
+                            checker.reportError(tree, "i18nformat.invalid.formatfor");
                         }
                     }
                     break;
@@ -413,7 +434,7 @@ public class I18nFormatterTreeUtil {
             }
 
             ExpressionTree loc;
-            loc = ((MethodInvocationTree) tree).getMethodSelect();
+            loc = tree.getMethodSelect();
             if (type != InvocationType.VARARG && !args.isEmpty()) {
                 loc = args.get(0);
             }
